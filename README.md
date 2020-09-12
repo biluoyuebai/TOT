@@ -176,9 +176,125 @@ $\alpha$ - v0.0.1
 时间：2020年9月10日  
 基础功能：包含模块整体结构、主要功能语句、少数语句块、多数内建函数
 
+## 6. 两个示例
 
+> module BottleNeck
+> arg in_channels | int
+> arg out_channels | int
+> arg stride | int | 1
+> par x | FloatTensor | batch_size, ... in_channels, in_height, in_width
+> ret x | FloatTensor | batch_size, ..., out_channels, out_height, out_width
+> body
+> residual = x.conv2d[in_channels, out_channels, 1]\
+>             .batchnorm2d[out_channels].relu[True]\
+>             .conv2d[out_channels,out_channels, 3, stride, 1]\
+>             .batchnorm2d[out_channels].relu[True]\
+>             .conv2d[out_channels, out_channels * 4, 1]\
+>             .batchnorm2d[out_channels * 4]
+> shortcut = x.conv2d[in_channels, out_channels * 4, 1, stride]\
+>             .batchnorm2d[out_channels * 4]
+> return (residual + shortcut).relu[True]
+> moduleend
 
+```python
+class BottleNeck(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=1):
+        """
+        Arguments:
+            in_channels: type - int
+            out_channels: type - int
+            stride: type - int; default - 1
+        """
+        super(BottleNeck, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.stride = stride
+        self.batchnorm2d = nn.BatchNorm2d(self.out_channels * 4)
+        self.conv2d = nn.Conv2d(self.out_channels, self.out_channels * 4, 1)
+ 
+    def forward(self, x):
+        """
+        Parameters:
+            x: type - FloatTensor; shape - <batch_size, ... in_channels, in_height, in_width>
+        Retvals:
+            x: type - FloatTensor; shape - <batch_size, ... in_channels, in_height, in_width>
+        """
+        residual = self.batchnorm2d(self.conv2d(F.relu(self.batchnorm2d(self.conv2d(F.relu(self.batchnorm2d(self.conv2d(x))))))))
+        shortcut = self.batchnorm2d(self.conv2d(x))
+        return F.relu(residual + shortcut)
+```
 
+> module MultiHeadAttention
+> arg input_dim | long
+> arg d~model | long
+> arg head_num | long
+> par query | FloatTensor
+> par key | FloatTensor
+> par value | FloatTensor
+> par mask | FloatTensor | None
+> ret value_out | FloatTensor
+> body
+> q = query.linear{q}[input_dim, d~model]
+> k = key.linear{k}[input_dim, d~model]
+> v = value.linear{v}[input_dim, d~model]
+> batch_size = q.shape[0]
+> d~f = q.shape[-1]
+> sub_dim = d~f // head_num
+> q = q.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
+> k = k.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
+> v = v.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
+> if mask != None
+>     mask = mask.repeat[head_num,,]
+> end
+> value_out = ScaledDotProductAttention{@attention}(q, k, v, mask)
+> value_out = value_out.reshape[batch_size,head_num,,d~f].T[1,2].reshape[batch_size,,d~f*head_num]
+> return value_out.linear{o}[d~model, input_dim]
+> moduleend
+
+```python
+class MultiHeadAttention(nn.Module):
+    def __init__(self, input_dim, d_model, head_num):
+        """
+        Arguments:
+            input_dim: type - long
+            d_model: type - long
+            head_num: type - long
+        """
+        super(MultiHeadAttention, self).__init__()
+        self.input_dim = input_dim
+        self.d_model = d_model
+        self.head_num = head_num
+        self.linear_q = nn.Linear(self.input_dim, self.d_model)
+        self.linear_k = nn.Linear(self.input_dim, self.d_model)
+        self.linear_v = nn.Linear(self.input_dim, self.d_model)
+        self.attention = ScaledDotProductAttention()
+        self.linear_o = nn.Linear(self.d_model, self.input_dim)
+ 
+    def forward(self, query, key, value, mask):
+        """
+        Parameters:
+            query: type - FloatTensor; shape - <...>
+            key: type - FloatTensor; shape - <...>
+            value: type - FloatTensor; shape - <...>
+            mask: type - FloatTensor; shape - <None>
+        Retvals:
+            value_out: type - FloatTensor; shape - <...>
+        """
+        q = self.linear_q(query)
+        k = self.linear_k(key)
+        v = self.linear_v(value)
+        batch_size = q.shape[0]
+        d_f = q.shape[-1]
+        sub_dim = d_f // self.head_num
+        q = torch.transpose(q.view(batch_size, -1, self.head_num, sub_dim), 1, 2).view(batch_size * self.head_num, -1, sub_dim)
+        k = torch.transpose(k.view(batch_size, -1, self.head_num, sub_dim), 1, 2).view(batch_size * self.head_num, -1, sub_dim)
+        v = torch.transpose(v.view(batch_size, -1, self.head_num, sub_dim), 1, 2).view(batch_size * self.head_num, -1, sub_dim)
+        if mask != None:
+            mask = mask.repeat(self.head_num, 1, 1)
+        value_out = self.attention(q, k, v, mask)
+        value_out = torch.transpose(value_out.view(batch_size, self.head_num, -1, d_f), 1, 2).view(batch_size, -1, d_f * self.head_num)
+        return self.linear_o(value_out)
+```
 
 
 
