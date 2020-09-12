@@ -178,23 +178,25 @@ $\alpha$ - v0.0.1
 
 ## 6. 两个示例
 
-> module BottleNeck
-> arg in_channels | int
-> arg out_channels | int
-> arg stride | int | 1
-> par x | FloatTensor | batch_size, ... in_channels, in_height, in_width
-> ret x | FloatTensor | batch_size, ..., out_channels, out_height, out_width
-> body
-> residual = x.conv2d[in_channels, out_channels, 1]\
->             .batchnorm2d[out_channels].relu[True]\
->             .conv2d[out_channels,out_channels, 3, stride, 1]\
->             .batchnorm2d[out_channels].relu[True]\
->             .conv2d[out_channels, out_channels * 4, 1]\
->             .batchnorm2d[out_channels * 4]
-> shortcut = x.conv2d[in_channels, out_channels * 4, 1, stride]\
->             .batchnorm2d[out_channels * 4]
-> return (residual + shortcut).relu[True]
-> moduleend
+```shell
+module BottleNeck
+arg in_channels | int
+arg out_channels | int
+arg stride | int | 1
+par x | FloatTensor | batch_size, ... in_channels, in_height, in_width
+ret x | FloatTensor | batch_size, ..., out_channels, out_height, out_width
+body
+residual = x.conv2d[in_channels, out_channels, 1]\
+            .batchnorm2d[out_channels].relu[True]\
+            .conv2d[out_channels,out_channels, 3, stride, 1]\
+            .batchnorm2d[out_channels].relu[True]\
+            .conv2d[out_channels, out_channels * 4, 1]\
+            .batchnorm2d[out_channels * 4]
+shortcut = x.conv2d[in_channels, out_channels * 4, 1, stride]\
+            .batchnorm2d[out_channels * 4]
+return (residual + shortcut).relu[True]
+moduleend
+```
 
 ```python
 class BottleNeck(nn.Module):
@@ -224,32 +226,34 @@ class BottleNeck(nn.Module):
         return F.relu(residual + shortcut)
 ```
 
-> module MultiHeadAttention
-> arg input_dim | long
-> arg d~model | long
-> arg head_num | long
-> par query | FloatTensor
-> par key | FloatTensor
-> par value | FloatTensor
-> par mask | FloatTensor | None
-> ret value_out | FloatTensor
-> body
-> q = query.linear{q}[input_dim, d~model]
-> k = key.linear{k}[input_dim, d~model]
-> v = value.linear{v}[input_dim, d~model]
-> batch_size = q.shape[0]
-> d~f = q.shape[-1]
-> sub_dim = d~f // head_num
-> q = q.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
-> k = k.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
-> v = v.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
-> if mask != None
->     mask = mask.repeat[head_num,,]
-> end
-> value_out = ScaledDotProductAttention{@attention}(q, k, v, mask)
-> value_out = value_out.reshape[batch_size,head_num,,d~f].T[1,2].reshape[batch_size,,d~f*head_num]
-> return value_out.linear{o}[d~model, input_dim]
-> moduleend
+```shell
+module MultiHeadAttention
+arg input_dim | long
+arg d~model | long
+arg head_num | long
+par query | FloatTensor
+par key | FloatTensor
+par value | FloatTensor
+par mask | FloatTensor | None
+ret value_out | FloatTensor
+body
+q = query.linear{q}[input_dim, d~model]
+k = key.linear{k}[input_dim, d~model]
+v = value.linear{v}[input_dim, d~model]
+batch_size = q.shape[0]
+d~f = q.shape[-1]
+sub_dim = d~f // head_num
+q = q.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
+k = k.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
+v = v.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
+if mask != None
+    mask = mask.repeat[head_num,,]
+end
+value_out = ScaledDotProductAttention{@attention}(q, k, v, mask)
+value_out = value_out.reshape[batch_size,head_num,,d~f].T[1,2].reshape[batch_size,,d~f*head_num]
+return value_out.linear{o}[d~model, input_dim]
+moduleend
+```
 
 ```python
 class MultiHeadAttention(nn.Module):
