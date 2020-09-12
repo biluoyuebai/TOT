@@ -1,0 +1,33 @@
+module BasicBlock
+arg in_channels | int
+arg out_channels | int
+arg stride | int | 1
+par x | FloatTensor | batch_size, ..., in_channels, in_height, in_width
+ret x | FloatTensor | batch_size, ..., out_channels, out_height, out_width
+body
+residual = x.conv2d[in_channels, out_channels, 3, stride]\
+            .batchnorm2d[out_channels].relu[True]\
+            .conv2d[out_channels, out_channels, 3, , 1]\
+            .batchnorm2d[out_channels]
+shortcut = x.conv2d[in_channels, out_channels, 1, stride]\
+            .batchnorm2d[out_channels]
+return (residual + shortcut).relu[True]
+moduleend
+
+module BottleNeck
+arg in_channels | int
+arg out_channels | int
+arg stride | int | 1
+par x | FloatTensor | batch_size, ... in_channels, in_height, in_width
+ret x | FloatTensor | batch_size, ..., out_channels, out_height, out_width
+body
+residual = x.conv2d[in_channels, out_channels, 1]\
+            .batchnorm2d[out_channels].relu[True]\
+            .conv2d[out_channels,out_channels, 3, stride, 1]\
+            .batchnorm2d[out_channels].relu[True]\
+            .conv2d[out_channels, out_channels * 4, 1]\
+            .batchnorm2d[out_channels * 4]
+shortcut = x.conv2d[in_channels, out_channels * 4, 1, stride]\
+            .batchnorm2d[out_channels * 4]
+return (residual + shortcut).relu[True]
+moduleend

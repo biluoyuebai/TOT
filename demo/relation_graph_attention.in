@@ -1,0 +1,146 @@
+module ScaledDotProductAttention
+par query | float | ..., l~q, d~q
+par key | float | ..., l~k, d~k
+par value | float | ..., l~k, d~k
+ret value_out | float | ..., l~q, d~k
+ret att_scores | float | ..., l~q, l~k
+body
+dk = query.shape[-1]
+scores = (query # key.T[-1,-2]) / dk.ssqrt
+scores = scores.softmax[-1]
+return scores # value, scores
+moduleend
+
+module ScaledDotProductRelationAttention
+arg head_num | long
+par query | float | batch_size * head_num, node_num, d~q
+par key | float | batch_size * head_num, node_num, d~k
+par value | float | batch_size * head_num, node_num, d~k
+par relation | float | batch_size, node_num, node_num, d~r
+par mask | float | batch_size * head_num, node_num, node_num | None
+ret value_out | float | batch_size, node_num, d~q
+forward
+dk = query.shape[-1]
+scores = (query # key.T[-1,-2]) / dk.ssqrt
+relation = relation.unsqueeze[1].repeat[,head_num,,,]
+relation = relation.reshape[,scores.shape[1],scores.shape[1],dk]
+relative_scores = (query.unsqueeze[-2] # relation.T[-1,-2]).squeeze
+scores = scores + relative_scores
+scores = scores.reshape[,head_num,scores.shape[1],scores.shape[1]]
+scores = scores + mask
+scores = scores.reshape[,scores.shape[2],scores.shape[2]]
+attention = scores.softmax[-1]
+self_att_val = attention # value
+attention = attention.unsqueeze[-2]
+rel_att_val = attention # relation
+return self_att_val + rel_att_val
+moduleend
+
+module PositionwiseFeedForward
+arg d~model | long
+arg d~ff | long
+arg dropout | float | 0.0
+par x | FloatTensor | batch_size, input_len, model_dim
+ret x | FloatTensor | batch_size, input_len, model_dim
+forward
+inter = x.layernorm[d~model].linear[d~model, d~ff].relu.dropout[dropout]
+output = inter.linear{2}[d~ff, d~model].dropout[dropout]
+return output + x[,,,3]
+moduleend
+
+module MultiHeadAttention
+arg input_dim | long
+arg d~model | long
+arg head_num | long
+par query | FloatTensor
+par key | FloatTensor
+par value | FloatTensor
+par mask | FloatTensor | None
+ret value_out | FloatTensor
+body
+q = query.linear{q}[input_dim, d~model]
+k = key.linear{k}[input_dim, d~model]
+v = value.linear{v}[input_dim, d~model]
+batch_size = q.shape[0]
+d~f = q.shape[-1]
+sub_dim = d~f // head_num
+q = q.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
+k = k.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
+v = v.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
+if mask != None
+    mask = mask.repeat[head_num,,]
+end
+value_out = ScaledDotProductAttention{@attention}(q, k, v, mask)
+value_out = value_out.reshape[batch_size,head_num,,d~f].T[1,2].reshape[batch_size,,d~f*head_num]
+return value_out.linear{o}[d~model, input_dim]
+moduleend
+
+module MultiHeadRelationAttention
+arg input_dim | long
+arg d~model | long
+arg head_num | long
+par query | FloatTensor
+par key | FloatTensor
+par value | FloatTensor
+par relation | FloatTensor
+par mask | FloatTensor | | None
+body
+q = query.linear{q}[input_dim, d~model]
+k = key.linear{k}[input_dim, d~model]
+v = value.linear{v}[input_dim, d~model]
+batch_size = q.shape[0]
+d~f = q.shape[-1]
+sub_dim = d~f // head_num
+q = q.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
+k = k.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
+v = v.reshape[batch_size,,head_num,sub_dim].T[1,2].reshape[batch_size*head_num,,sub_dim]
+if mask != None
+    mask = mask.repeat[head_num,,]
+end
+value_out = ScaledDotProductRelationAttention{@attention}[head_num](q, k, v, mask)
+value_out = value_out.reshape[batch_size,head_num,,d~f].T[1,2].reshape[batch_size,,d~f*head_num]
+return value_out.linear{o}[d~model, input_dim]
+moduleend
+
+module GATLayer
+arg head_num | int
+arg d~model | int
+arg prob | float
+par h | FloatTensor
+par mask | FloatTensor
+ret out | FloatTensor
+body
+out = h.layernorm[d~model]
+out = MultiHeadAttention{@self_att}[d~model,d~model,head_num](out, out, out, mask)
+out = out.dropout[prob] + head_num
+return out.PositionwiseFeedForward{@ff}[d~model,d~model,prob]
+moduleend
+
+module RATLayer
+arg head_num | int
+arg d~model | int
+arg prob | float
+par h | FloatTensor
+par relation | FloatTensor
+par mask | FloatTensor
+body
+out = h.layernorm[d~model]
+out = MultiHeadRelationAttention{@self_rel_att}[d~model,d~model,head_num](out,out,out,relation,mask)
+out = out.dropout[prob] + h
+return out.PositionwiseFeedForward{@ff}[d~model,d~model,prob]
+moduleend
+
+module PositionalEncoding
+arg d~model | int
+arg prob | float
+arg max_len | int | 5001
+par x | FloatTensor
+par idx | LongTensor
+body
+static pe = .zeros[max_len, d~model]
+static pe[,1:2] = (pe * pe).sin
+test = x.conv2d[64,128,3]
+test = arange(2)
+test = arange(1, 3)
+test = arange(1.0, 10.5, 0.8)
+moduleend
